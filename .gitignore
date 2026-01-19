@@ -6,7 +6,8 @@ node_modules/
 
 # Google credentials
 credentials/
-*.json
+*-credentials.json
+service-account*.json
 
 # Logs
 logs/
