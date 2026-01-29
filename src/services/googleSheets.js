@@ -289,31 +289,46 @@ function mergeOrphansWithRaid(raid) {
     }
   }
 
-  // Try to merge loot orphans (find closest one that arrived BEFORE this raid)
-  if (!raid.uniqueDrop && orphanedMessages.loots.length > 0) {
-    // Find the orphan closest in time to this raid (within merge window)
-    // Prefer orphans that arrived BEFORE the raid (negative time diff)
-    let closestIndex = -1;
-    let closestTimeDiff = Infinity;
+  // Try to merge ALL loot orphans that arrived BEFORE this raid (within merge window)
+  if (orphanedMessages.loots.length > 0) {
+    // Find all orphans within the merge window that came BEFORE the raid
+    const matchingOrphans = [];
 
-    for (let i = 0; i < orphanedMessages.loots.length; i++) {
+    for (let i = orphanedMessages.loots.length - 1; i >= 0; i--) {
       const orphan = orphanedMessages.loots[i];
       const orphanTime = new Date(orphan.timestamp).getTime();
       const timeDiff = raidTime - orphanTime; // Positive if orphan came before raid
 
       // Only consider orphans that came BEFORE the raid (within window)
-      if (timeDiff >= 0 && timeDiff <= MERGE_WINDOW && timeDiff < closestTimeDiff) {
-        closestIndex = i;
-        closestTimeDiff = timeDiff;
+      if (timeDiff >= 0 && timeDiff <= MERGE_WINDOW) {
+        matchingOrphans.push({ index: i, orphan, timeDiff });
       }
     }
 
-    if (closestIndex >= 0) {
-      const lootOrphan = orphanedMessages.loots.splice(closestIndex, 1)[0];
-      const lootMessage = lootOrphan.playerName ? `(${lootOrphan.playerName}) - ${lootOrphan.itemName}` : lootOrphan.itemName;
-      raid.uniqueDrop = lootMessage;
-      logger.info(`Merged orphaned loot ${lootMessage} with raid (orphan was ${closestTimeDiff}ms earlier)`);
-      merged = true;
+    // Process matching orphans (remove from array in reverse order to preserve indices)
+    if (matchingOrphans.length > 0) {
+      // Sort by time diff (closest first)
+      matchingOrphans.sort((a, b) => a.timeDiff - b.timeDiff);
+
+      for (const match of matchingOrphans) {
+        const lootOrphan = match.orphan;
+        const lootMessage = lootOrphan.playerName ? `(${lootOrphan.playerName}) - ${lootOrphan.itemName}` : lootOrphan.itemName;
+
+        // Append to existing loot or set it
+        if (raid.uniqueDrop) {
+          raid.uniqueDrop = `${raid.uniqueDrop}, ${lootMessage}`;
+        } else {
+          raid.uniqueDrop = lootMessage;
+        }
+        logger.info(`Merged orphaned loot ${lootMessage} with raid (orphan was ${match.timeDiff}ms earlier)`);
+        merged = true;
+      }
+
+      // Remove matched orphans from the array (in reverse index order)
+      const indicesToRemove = matchingOrphans.map(m => m.index).sort((a, b) => b - a);
+      for (const idx of indicesToRemove) {
+        orphanedMessages.loots.splice(idx, 1);
+      }
     }
   }
 
@@ -813,16 +828,21 @@ async function handleLootDrop(data) {
     return;
   }
 
-  // Don't overwrite existing unique drop
-  if (raid.uniqueDrop) {
-    logger.debug(`Raid already has unique drop: ${raid.uniqueDrop} - skipping duplicate loot message`);
+  // Check if this exact loot message already exists (avoid true duplicates)
+  if (raid.uniqueDrop && raid.uniqueDrop.includes(lootMessage)) {
+    logger.debug(`Raid already has this loot: ${lootMessage} - skipping duplicate`);
     return;
   }
 
   logger.info(`Matching loot ${data.itemName} to raid from ${raid.timestamp}`);
 
-  // Update the raid entry with loot message
-  raid.uniqueDrop = lootMessage;
+  // Append to existing loot if there's already a drop, otherwise set it
+  if (raid.uniqueDrop) {
+    raid.uniqueDrop = `${raid.uniqueDrop}, ${lootMessage}`;
+    logger.info(`Added additional loot drop: ${lootMessage}`);
+  } else {
+    raid.uniqueDrop = lootMessage;
+  }
 
   // If raid was already added to sheet, update it
   if (raid.addedToSheet && raid.sheetRow) {
