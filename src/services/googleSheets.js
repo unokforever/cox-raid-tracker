@@ -828,10 +828,12 @@ async function handleLootDrop(data) {
     return;
   }
 
-  // Check if this exact loot message already exists (avoid true duplicates)
-  if (raid.uniqueDrop && raid.uniqueDrop.includes(lootMessage)) {
-    logger.debug(`Raid already has this loot: ${lootMessage} - skipping duplicate`);
-    return;
+  // Each player can only receive one purple per raid - skip if this player already has one
+  if (raid.uniqueDrop && data.playerName) {
+    if (raid.uniqueDrop.includes(`(${data.playerName})`)) {
+      logger.debug(`Player ${data.playerName} already has a purple in this raid - skipping duplicate`);
+      return;
+    }
   }
 
   logger.info(`Matching loot ${data.itemName} to raid from ${raid.timestamp}`);
