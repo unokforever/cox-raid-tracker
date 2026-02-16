@@ -314,6 +314,12 @@ function mergeOrphansWithRaid(raid) {
         const lootOrphan = match.orphan;
         const lootMessage = lootOrphan.playerName ? `(${lootOrphan.playerName}) - ${lootOrphan.itemName}` : lootOrphan.itemName;
 
+        // Skip if this player already has a purple in this raid
+        if (raid.uniqueDrop && lootOrphan.playerName && raid.uniqueDrop.includes(`(${lootOrphan.playerName})`)) {
+          logger.debug(`Orphan merge: player ${lootOrphan.playerName} already has a purple - skipping duplicate`);
+          continue;
+        }
+
         // Append to existing loot or set it
         if (raid.uniqueDrop) {
           raid.uniqueDrop = `${raid.uniqueDrop}, ${lootMessage}`;
@@ -818,7 +824,11 @@ async function handleLootDrop(data) {
   const lootMessage = data.playerName ? `(${data.playerName}) - ${data.itemName}` : data.itemName;
 
   if (!raid) {
-    // No raid found yet - add to orphan buffer
+    // No raid found yet - add to orphan buffer (but skip if this player already has one buffered)
+    if (data.playerName && orphanedMessages.loots.some(o => o.playerName === data.playerName)) {
+      logger.debug(`Orphan buffer already has a loot from ${data.playerName} - skipping duplicate`);
+      return;
+    }
     logger.info(`No raid found for loot ${lootMessage}, adding to orphan buffer`);
     orphanedMessages.loots.push({
       timestamp: data.timestamp,
